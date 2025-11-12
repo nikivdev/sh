@@ -1,77 +1,54 @@
 #!/usr/bin/env bash
-# check-obs-is-on.sh — macOS helper that reports OBS streaming status via UI scripting.
-# Prints one of: STREAMING | RECORDING_ONLY | IDLE | OBS_NOT_RUNNING | UNKNOWN
-# Exits with: 0 streaming, 10 recording-only, 1 idle, 2 not running, 3 unknown
+# check-obs-is-on.sh — quick helper that reports whether OBS is currently streaming.
+# Prints one of: STREAMING | NOT_STREAMING | OBS_NOT_RUNNING | UNKNOWN
+# Exits with: 0 streaming, 1 not streaming, 2 OBS not running, 3 unknown/error
 
 set -euo pipefail
 
-status="$(osascript <<'APPLESCRIPT'
+run_query() {
+  /usr/bin/osascript <<'APPLESCRIPT'
 tell application "System Events"
-  if not (exists process "OBS") then return "OBS_NOT_RUNNING"
-  tell process "OBS"
-    try
-      set obsWindow to missing value
-      set windowList to windows
-      repeat with w in windowList
-        try
-          if subrole of w is "AXStandardWindow" then
-            set obsWindow to w
-            exit repeat
-          end if
-        end try
-      end repeat
-      if obsWindow is missing value then
-        if windowList is {} then error "OBS window not found"
-        set obsWindow to first item of windowList
-      end if
-
-      set btnNames to {}
-      set deepContents to entire contents of obsWindow
-      repeat with elem in deepContents
-        try
-          if role of elem is "AXButton" then
-            set end of btnNames to (name of elem as text)
-          end if
-        end try
-      end repeat
-
-      set isStreaming to my containsValue(btnNames, "Stop Streaming")
-      set isRecording to my containsValue(btnNames, "Stop Recording")
-      if isStreaming then
-        return "STREAMING"
-      else if isRecording then
-        return "RECORDING_ONLY"
-      else
-        return "IDLE"
-      end if
-    on error errMsg number errNum
-      return "ERROR|" & errNum & "|" & errMsg
-    end try
-  end tell
+	if not (exists process "OBS") then return "OBS_NOT_RUNNING"
+	tell process "OBS"
+		repeat with w in windows
+			try
+				set streamingButtons to (buttons of w whose name is "Stop Streaming")
+				if streamingButtons is not {} then return "STREAMING"
+			end try
+		end repeat
+		return "NOT_STREAMING"
+	end tell
 end tell
-
-on containsValue(textList, targetValue)
-  repeat with itemText in textList
-    if itemText is targetValue then return true
-  end repeat
-  return false
-end containsValue
 APPLESCRIPT
-)"
+}
 
-if [[ "$status" == ERROR\|* ]]; then
-  err_detail="${status#ERROR|}"
-  echo "Failed to query OBS UI status (grant accessibility and automation permissions to your terminal?): $err_detail" >&2
-  status="UNKNOWN"
+set +e
+status="$(run_query)"
+osa_exit=$?
+set -e
+
+if (( osa_exit != 0 )); then
+  echo "Failed to query OBS streaming status (osascript exit $osa_exit). Check Accessibility + Automation permissions for your shell." >&2
+  echo "UNKNOWN"
+  exit 3
 fi
 
-echo "$status"
-
 case "$status" in
-  STREAMING) exit 0 ;;
-  RECORDING_ONLY) exit 10 ;;
-  IDLE) exit 1 ;;
-  OBS_NOT_RUNNING) exit 2 ;;
-  UNKNOWN) exit 3 ;;
-  *) echo "Unexpected status string: $status" >&2; exit 3 ;;
+  STREAMING)
+    echo "$status"
+    exit 0
+    ;;
+  NOT_STREAMING)
+    echo "$status"
+    exit 1
+    ;;
+  OBS_NOT_RUNNING)
+    echo "$status"
+    exit 2
+    ;;
+  *)
+    echo "UNKNOWN" >&2
+    echo "UNKNOWN"
+    exit 3
+    ;;
 esac
