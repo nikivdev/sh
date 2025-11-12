@@ -19,12 +19,11 @@ on run argv
       if obsWindow is missing value then return "OBS_WINDOW_NOT_FOUND"
       set sceneRow to my locateSceneRow(sceneName, obsWindow)
       if sceneRow is missing value then return "SCENE_NOT_FOUND"
-      try
-        perform action "AXPress" of sceneRow
+      if my selectSceneRow(sceneRow) then
         return "OK"
-      on error errMsg number errNum
-        return "FAILED:" & errMsg
-      end try
+      else
+        return "SCENE_SELECT_FAILED"
+      end if
     end tell
   end tell
 end run
@@ -40,15 +39,26 @@ end firstStandardWindow
 
 on locateSceneRow(sceneName, container)
   repeat with elem in entire contents of container
-    try
-      if name of elem is sceneName then
-        set rowCandidate to my ascendToSelectable(elem)
-        if rowCandidate is not missing value then return rowCandidate
-      end if
-    end try
+    if my elementMatches(elem, sceneName) then
+      set rowCandidate to my ascendToSelectable(elem)
+      if rowCandidate is not missing value then return rowCandidate
+    end if
   end repeat
   return missing value
 end locateSceneRow
+
+on elementMatches(elem, sceneName)
+  try
+    if (name of elem) is sceneName then return true
+  end try
+  try
+    if (value of elem as text) is sceneName then return true
+  end try
+  try
+    if (title of elem as text) is sceneName then return true
+  end try
+  return false
+end elementMatches
 
 on ascendToSelectable(elem)
   repeat 6 times
@@ -62,6 +72,26 @@ on ascendToSelectable(elem)
   end repeat
   return missing value
 end ascendToSelectable
+
+on selectSceneRow(sceneRow)
+  try
+    tell sceneRow to select
+    return true
+  end try
+  try
+    set selected of sceneRow to true
+    return true
+  end try
+  try
+    set value of attribute "AXSelected" of sceneRow to true
+    return true
+  end try
+  try
+    perform action "AXPress" of sceneRow
+    return true
+  end try
+  return false
+end selectSceneRow
 APPLESCRIPT
 }
 
@@ -91,12 +121,16 @@ case "$status" in
     printf 'Scene "%s" was not found in OBS.\n' "$SCENE_NAME" >&2
     exit 4
     ;;
+  SCENE_SELECT_FAILED)
+    printf 'Found scene "%s" but could not select it via UI scripting.\n' "$SCENE_NAME" >&2
+    exit 5
+    ;;
   FAILED:*)
     echo "OBS returned an unexpected UI error: ${status#FAILED:}" >&2
-    exit 5
+    exit 6
     ;;
   *)
     echo "Unexpected response from AppleScript: $status" >&2
-    exit 6
+    exit 7
     ;;
 esac
